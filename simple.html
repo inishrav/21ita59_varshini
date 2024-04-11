@@ -1,1 +1,405 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Chat Bot</title>
+<meta charset="utf-8"/>
+<script 
+src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+<script>
+ var ws = new WebSocket("ws://localhost:8000");
+ 
+ $(window).on('beforeunload', function(){
+ ws.close();
+ });
+ ws.onerror = function(event) {
+ location.reload();
+ }
+ ws.onmessage = function(event) { 
+ var message_received = event.data;
+ chat_add_message(message_received, false);
+ };
+ 
+ function chat_add_message(message, isUser) {
+ var class_suffix = isUser ? '_user' : '';
+ var html = '\
+ <div class="chat_line">\
+ <div class="chat_bubble'+class_suffix+'">\
+ <div class="chat_triangle'+class_suffix+'"></div>\
+ '+message+'\
+ </div>\
+ </div>\
+ ';
+ chat_add_html(html);
+ }
+ function chat_add_html(html) {
+ $("#chat_log").append(html);
+ chat_scrolldown();
+ }
+ 
+ function chat_scrolldown() {
+ $("#chat_log").animate({ scrollTop: $("#chat_log")[0].scrollHeight }, 500);
+ }
+ $(function() {
+ $('#chat_input').on('keypress', function(event) {
+ if (event.which === 13 && $(this).val() != ""){
+ var message = $(this).val();
+ $(this).val("");
+ chat_add_message(message, true);
+ ws.send(message);
+ }
+ });
+ });
+</script>
+<style>
+ * {
+ box-sizing: border-box;
+ -moz-box-sizing: border-box;
+ -webkit-box-sizing: border-box;
+ }
+ body {
+overflow:hidden;
+background-image:linear-gradient(to right,#43e97b,#38f9d7);
+font-family: Helvetica;
+background-size: 1920px 1080px;
+ }
+ #chat_container {
+ overflow: hidden;
+ border-radius: 15px;
+ border: 1px solid black;
+ margin: 40px 0px 700px 1000px;
+ }
+ #chat_log {
+ background-color: #F3F76F;
+ padding: 10px;
+ border-bottom: 1px solid black;
+ overflow-y: scroll;
+ height: 300px;
+ font-size: 26px;
+height: 550px;
+ }
+ #chat_input_container {
+ padding: 10px
+ }
+ #chat_input {
+ padding: 2px;
+ font-size: 15px;
+ width: 100%;
+ }
+ .chat_line {
+ overflow: hidden;
+ width: 100%;
+ margin: 2px 0 12px 0;
+ }
+ .chat_triangle, .chat_triangle_user {
+ position: absolute;
+ top: 0;
+ width: 0;
+ height: 0;
+ border-style: solid;
+ left: -18px;
+ border-width: 0 18px 13px 0;
+ border-color: transparent #ffffff transparent transparent;
+ }
+ .chat_triangle_user {
+ left: auto;
+ right: -18px;
+ border-width: 13px 18px 0 0;
+ border-color: #234b9b transparent transparent transparent;
+ }
+ .chat_bubble, .chat_bubble_user {
+ position: relative;
+ float: left;
+ background-color: #FFF;
+ margin-top: 10px;
+ line-height: 35px;
+ padding: 10px 25px 10px 25px;
+ margin-left: 20px;
+ font-size: 15px;
+ }
+ .chat_bubble_user {
+ float: right;
+ margin-left: 0px;
+ margin-right: 20px;
+ background-color: #234b9b;
+ color: #FFF;
+ }
+</style>
+</head>
+<body>
+<div id="chat_container">
+ <div id="chat_log">
+ </div>
+ <div id="chat_input_container">
+ <div><input id="chat_input" /></div>
+ </div>
+</div>
+</body>
+</html>
+
+from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
+from chatbot import get_response,get_response2
+class ChatServer(WebSocket):
+def handleMessage(self):
+# echo message back to client
+message = self.data
+#message1=self.data
+response = get_response(message)
+a = get_response2(message)
+self.sendMessage(response)
+self.sendMessage(a)
+#self.sendMessage(a)
+def handleConnected(self):
+print(self.address, 'connected')
+def handleClose(self):
+print(self.address, 'closed')
+server = SimpleWebSocketServer('', 8000, ChatServer)
+server.serveforever()
+CHATBOT.py
+from chatterbot import ChatBot
+from chatterbot.trainers import ListTrainer
+import pandas as pd
+import os
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split as tts
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import LabelEncoder as LE
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+from nltk.stem.lancaster import LancasterStemmer
+from nltk.corpus import stopwords
+import datetime
+stop_words = set(stopwords.words('english'))
+#print(stop_words)
+def cleanup(sentence):
+word_tok = nltk.word_tokenize(sentence)
+stemmed_words = [w for w in word_tok if not w in stop_words]
+#print(stemmed_words)
+#stemmed_words = [stemmer.stem(w) for w in word_tok]
+return ' '.join(stemmed_words)
+le = LE()
+tfv = TfidfVectorizer(min_df=1, stop_words='english')
+data = pd.read_csv(r"C:\Users\nidhu\OneDrive\Desktop\Banking-Chatbotmaster\BankFAQs.csv")
+questions = data['Question'].values
+X = []
+for question in questions:
+X.append(cleanup(question))
+tfv.fit(X)
+le.fit(data['Class'])
+X = tfv.transform(X)
+y = le.transform(data['Class'])
+trainx, testx, trainy, testy = tts(X, y, test_size=.3, random_state=42)
+model = SVC(kernel='linear')
+model.fit(trainx, trainy)
+class_=le.inverse_transform(model.predict(X))
+#print("SVC:", model.score(testx, testy))
+def get_max5(arr):
+ixarr = []
+for ix, el in enumerate(arr):
+ixarr.append((el, ix))
+ixarr.sort()
+ixs = []
+for i in ixarr[-5:]:
+ixs.append(i[1])
+return ixs[::-1]
+def get_response(usrText):
+while True:
+am=["OK"]
+c = [x.lower() for x in am]
+# ty = ["getting"]
+# r = [x.lower() for x in ty]
+t_usr = tfv.transform([cleanup(usrText.strip().lower())])
+class_ = le.inverse_transform(model.predict(t_usr))
+questionset = data[data['Class'].values == class_]
+cos_sims = []
+for question in questionset['Question']:
+sims = cosine_similarity(tfv.transform([question]), t_usr)
+cos_sims.append(sims)
+ind = cos_sims.index(max(cos_sims))
+b = [questionset.index[ind]]
+if usrText.lower() == "bye":
+return "Bye"
+GREETING_INPUTS = ["hello", "hi", "greetings", "sup", "what's up", 
+"hey","hiii","hii","yo"]
+a = [x.lower() for x in GREETING_INPUTS]
+sd=["Thanks","Welcome"]
+d = [x.lower() for x in sd]
+if usrText.lower() in a:
+return ("Hi, I'm Emily!\U0001F60A")
+if usrText.lower() in c:
+return "Ok...Alright!\U0001F64C"
+if usrText.lower() in d:
+return ("My pleasure! \U0001F607")
+if max(cos_sims) > [[0.]]:
+a = data['Answer'][questionset.index[ind]]+" "
+return a
+elif max(cos_sims)==[[0.]]:
+return "sorry! \U0001F605"
+def get_response2(usr):
+if usr.lower() == "bye":
+return "Thanks for having conversation! \U0001F60E"
+GREETING_INPUTS = ["hello", "hi", "greetings", "sup", "what's up", 
+"hey","hii","hiii","hiiiii","yo","Hey there"]
+a = [x.lower() for x in GREETING_INPUTS]
+sd = ["Thanks", "Welcome"]
+d = [x.lower() for x in sd]
+am = ["OK"]
+c = [x.lower() for x in am]
+t_usr = tfv.transform([cleanup(usr.strip().lower())])
+class_ = le.inverse_transform(model.predict(t_usr))
+questionset = data[data['Class'].values == class_]
+cos_sims = []
+for question in questionset['Question']:
+sims = cosine_similarity(tfv.transform([question]), t_usr)
+cos_sims.append(sims)
+ind = cos_sims.index(max(cos_sims))
+b = [questionset.index[ind]]
+if usr.lower() in a:
+return ("you can ask me questions related to: Accounts, Investments, Funds, 
+etc.")
+if usr.lower() in c:
+return " Cool! \U0001f604"
+if usr.lower() in d:
+return ("\U0001F44D")
+if max(cos_sims) == [[0.]]:
+return "I'm not able to solve this question at this moment. You can call to 
+customer support 1860 999 9999 \U0001F615"
+if max(cos_sims) > [[0.]]:
+inds = get_max5(cos_sims)
+print(inds)
+b = "(1)" + data['Question'][questionset.index[0]]
+c = "(2)" + data['Question'][questionset.index[1]]
+d = "(3)" + data['Question'][questionset.index[2]]
+e = "(4)" + data['Question'][questionset.index[3]]
+f = "(5)" + data['Question'][questionset.index[4]]
+return "Following are the Recommended Questions----->" + b + c + d + e + f
+
+
+
+CHATBOT_TRAIN.py
+from chatterbot import ChatBot
+from chatterbot.trainers import ListTrainer
+import os
+def setup():
+chatbot = ChatBot('Bot',
+storage_adapter='chatterbot.storage.SQLStorageAdapter',
+trainer='chatterbot.trainers.ListTrainer')
+for file in os.listdir(r'C:\Users\nidhu\OneDrive\Desktop\Banking-Chatbotmaster/'):
+convData = open(r'C:\Users\nidhu\OneDrive\Desktop\Banking-Chatbotmaster/' + file, encoding='latin-1').readlines()
+chatbot.set_trainer(ListTrainer)
+chatbot.train(convData)
+#print("Training completed")
+setup()
+
+
+ATTACHMENT.py
+var coll = document.getElementsByClassName("collapsible");
+for (let i = 0; i < coll.length; i++) {
+ coll[i].addEventListener("click", function () {
+ this.classList.toggle("active");
+ var content = this.nextElementSibling;
+ if (content.style.maxHeight) {
+ content.style.maxHeight = null;
+ } else {
+ content.style.maxHeight = content.scrollHeight + "px";
+ }
+ });
+}
+function getTime() {
+ let today = new Date();
+ hours = today.getHours();
+ minutes = today.getMinutes();
+ if (hours < 10) {
+ hours = "0" + hours;
+ }
+ 
+if (minutes < 10) {
+ minutes = "0" + minutes;
+ }
+ let time = hours + ":" + minutes;
+ return time;
+}
+// Gets the first message
+function firstBotMessage() {
+ let firstMessage = "How's it going?"
+ document.getElementById("botStarterMessage").innerHTML = '<p 
+class="botText"><span>' + firstMessage + '</span></p>';
+ let time = getTime();
+ $("#chat-timestamp").append(time);
+ document.getElementById("userInput").scrollIntoView(false);
+}
+firstBotMessage();
+function getHardResponse(userText) {
+ let botResponse = getBotResponse(userText);
+ let botHtml = '<p class="botText"><span>' + botResponse + '</span></p>';
+ $("#chatbox").append(botHtml);
+ document.getElementById("chat-bar-bottom").scrollIntoView(true);
+}
+//Gets the text text from the input box and processes it
+function getResponse() {
+ let userText = $("#textInput").val();
+ if (userText == "") {
+ userText = "I love Code Palace!";
+ }
+ let userHtml = '<p class="userText"><span>' + userText + '</span></p>';
+ $("#textInput").val("");
+ $("#chatbox").append(userHtml);
+ document.getElementById("chat-bar-bottom").scrollIntoView(true);
+ setTimeout(() => {
+ getHardResponse(userText);
+ }, 1000)
+}
+// Handles sending text via button clicks
+function buttonSendText(sampleText) {
+ let userHtml = '<p class="userText"><span>' + sampleText + '</span></p>';
+ $("#textInput").val("");
+ $("#chatbox").append(userHtml);
+ document.getElementById("chat-bar-bottom").scrollIntoView(true);
+ //Uncomment this if you want the bot to respond to this buttonSendText event
+ // setTimeout(() => {
+ // getHardResponse(sampleText);
+ // }, 1000)
+}
+function sendButton() {
+ getResponse();
+}
+function heartButton() { 
+}
+// Press enter to send a message
+$("#textInput").keypress(function (e) {
+ if (e.which == 13) {
+ getResponse();
+ }
+});
+const image_input = document.getElementById('fileInput');
+var uploaded_image = "";
+image_input.addEventListener("change", function(){
+ const reader = new FileReader();
+ reader.addEventListener("load", () => {
+ uploaded_image = reader.result;
+ document.getElementById('msg-box-img').style.backgroundImage = 
+`url(${uploaded_image})`;
+});
+ reader.readAsDataURL(this.files[0]);
+})
+function voice(){
+ document.getElementById("speechToText").style.display = "block";
+
+ var recognition = new webkitSpeechRecognition(); 
+ recognition.lang="en-GB";
+ 
+ recognition.onresult= function(event){ 
+ console.log(event);
+ document.getElementById("speechToText").value 
+=event.results[0][0].transcript;
+ 
+ }
+ recognition.start();
+ }
+ let fromvoice= document.getElementById("speechToText");
+ let tobox =document.getElementById("textInput");
+ let btn=document.getElementById("btnDone");
+btn.addEventListener('click', () =>{
+ fromvoice.value=tobox.value;
+})
 
